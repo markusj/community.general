@@ -76,7 +76,7 @@ options:
           - O(disk_volume.size) is the size of the storage to use.
           - The size is given in GB.
           - Required only if O(disk_volume.storage) is defined and mutually exclusive with O(disk_volume.host_path).
-        type: int
+        type: float
       host_path:
         description:
           - O(disk_volume.host_path) defines a bind or device path on the PVE host to use for the C(rootfs).
@@ -159,7 +159,7 @@ options:
           - O(mount_volumes[].size) is the size of the storage to use.
           - The size is given in GB.
           - Required only if O(mount_volumes[].storage) is defined and mutually exclusive with O(mount_volumes[].host_path).
-        type: int
+        type: float
       host_path:
         description:
           - O(mount_volumes[].host_path) defines a bind or device path on the PVE host to use for the C(rootfs).
@@ -638,6 +638,8 @@ class ProxmoxLxcAnsible(ProxmoxAnsible):
             #  "acl=0,thin1:base-100-disk-1,size=8G"
             #  "thin1:10,backup=0"
             #  "local:20"
+            #  "tmp-dir:300/subvol-300-disk-0.subvol,acl=1,size=0T"
+            #  "tmplog-dir:300/vm-300-disk-0.raw,mp=/var/log,mountoptions=noatime,size=32M"
             #  "volume=local-lvm:base-100-disk-1,size=20G"
             #  "/mnt/bindmounts/shared,mp=/shared"
             #  "volume=/dev/USB01,mp=/mnt/usb01"
@@ -649,11 +651,15 @@ class ProxmoxLxcAnsible(ProxmoxAnsible):
             disk_kwargs = dict(map(lambda item: item.split("="), args))
 
             VOLUME_PATTERN = r"""(?x)
-              (?:(?P<storage>[\w\-.]+):
-                (?:(?P<size>\d+)|
-                (?P<volume>[^,\s]+))
-              )|
-              (?P<host_path>[^,\s]+)
+              ^
+              (:?
+                (?:(?P<storage>[\w\-.]+):
+                  (?:(?P<size>\d+\.?\d*)|
+                  (?P<volume>[^,\s]+))
+                )|
+                (?P<host_path>[^,\s]+)
+              )
+              $
             """
             # DISCLAIMER:
             # There are two things called a "volume":
@@ -741,11 +747,12 @@ class ProxmoxLxcAnsible(ProxmoxAnsible):
                 except Exception:
                     vol_string = "{storage}:{size}".format(storage=storage, size=size)
             else:
-                raise AssertionError('Internal error')
-
+                # Ensure variable is set prior to step 1.3
+                vol_string = ""
+            
             # 1.3 If we have a host_path, we don't have storage, a volume, or a size
             vol_string = ",".join(
-                [vol_string] +
+                ([] if not vol_string else [vol_string]) +
                 ([] if host_path is None else [host_path]) +
                 ([] if mountpoint is None else ["mp={0}".format(mountpoint)]) +
                 ([] if options is None else ["{0}={1}".format(k, v) for k, v in options.items()]) +
@@ -1000,7 +1007,7 @@ def main():
             options=dict(
                 storage=dict(type="str"),
                 volume=dict(type="str"),
-                size=dict(type="int"),
+                size=dict(type="float"),
                 host_path=dict(type="path"),
                 options=dict(type="dict"),
             ),
@@ -1027,7 +1034,7 @@ def main():
                 id=(dict(type="str", required=True)),
                 storage=dict(type="str"),
                 volume=dict(type="str"),
-                size=dict(type="int"),
+                size=dict(type="float"),
                 host_path=dict(type="path"),
                 mountpoint=dict(type="path", required=True),
                 options=dict(type="dict"),
@@ -1049,7 +1056,7 @@ def main():
         onboot=dict(type='bool'),
         features=dict(type='list', elements='str'),
         startup=dict(type='list', elements='str'),
-        storage=dict(default='local'),
+        storage=dict(default='local'), # i am pretty sure this causes problems down the road
         cpuunits=dict(type='int'),
         nameserver=dict(),
         searchdomain=dict(),
